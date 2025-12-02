@@ -1,0 +1,12 @@
+{
+  "name": "oversyncerr",
+  "version": "1.0.0",
+  "description": "This script allows you to sync users from multiple Plex, Jellyfin, and Emby servers into Overseerr/Jellyseerr, creating local logins for users who can then request content.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

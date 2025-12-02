@@ -1,0 +1,46 @@
+{
+  "admin": {
+    "username": "admin",
+    "password": "change-me"
+  },
+  "seerr": {
+    "url": "http://localhost:5055",
+    "api_key": "your-api-key-here"
+  },
+  "media_servers": [
+    {
+      "name": "Plex Server 1",
+      "type": "plex",
+      "url": "http://localhost:32400",
+      "token": "your-plex-token-here",
+      "enabled": true,
+      "password_suffix": "2025",
+      "request_limit": null,
+      "machine_identifier": null,
+      "include_owner": true
+    },
+    {
+      "name": "Jellyfin Server 1",
+      "type": "jellyfin",
+      "url": "http://localhost:8096",
+      "token": "your-jellyfin-token-here",
+      "enabled": true,
+      "password_suffix": "2025",
+      "request_limit": null,
+      "include_owner": true
+    },
+    {
+      "name": "Emby Server 1",
+      "type": "emby",
+      "url": "http://localhost:8096",
+      "token": "your-emby-api-key-here",
+      "enabled": true,
+      "password_suffix": "2025",
+      "request_limit": null,
+      "include_owner": true
+    }
+  ],
+  "user_settings": {},
+  "sync_interval_minutes": 60
+}
+

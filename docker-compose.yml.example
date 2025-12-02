@@ -1,0 +1,35 @@
+services:
+  seerrsync:
+    restart: unless-stopped
+    container_name: seerrsync
+    image: seerrsync:latest
+    build: .
+    hostname: seerrsync
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    networks:
+      - saltbox
+    labels:
+      com.github.saltbox.saltbox_managed: true
+      diun.enable: true
+      traefik.enable: true
+      traefik.http.routers.seerrsync-http.entrypoints: web
+      traefik.http.routers.seerrsync-http.middlewares: globalHeaders@file,redirect-to-https@docker,robotHeaders@file,cloudflarewarp@docker
+      traefik.http.routers.seerrsync-http.rule: Host(`seerrsync.DOMAIN.COM`)
+      traefik.http.routers.seerrsync-http.service: seerrsync
+      traefik.http.routers.seerrsync.entrypoints: websecure
+      traefik.http.routers.seerrsync.middlewares: globalHeaders@file,secureHeaders@file,robotHeaders@file,cloudflarewarp@docker
+      traefik.http.routers.seerrsync.rule: Host(`seerrsync.DOMAIN.COM`)
+      traefik.http.routers.seerrsync.service: seerrsync
+      traefik.http.routers.seerrsync.tls.certresolver: cfdns
+      traefik.http.routers.seerrsync.tls.options: securetls@file
+      traefik.http.services.seerrsync.loadbalancer.server.port: 8000
+    volumes:
+      - /path/to/seerrsync:/config
+      - /etc/localtime:/etc/localtime:ro
+
+networks:
+  saltbox:
+    external: true
