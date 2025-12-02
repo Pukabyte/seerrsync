@@ -58,7 +58,7 @@ docker build -t seersync:latest .
 docker compose up -d
 ```
 
-The application will be available at the configured domain (default: `seersync.arctv.xyz`).
+The application will be available at the configured domain.
 
 ### Manual Installation
 
@@ -266,7 +266,7 @@ The application includes a `docker-compose.yml` file configured for Saltbox/Trae
 - **Port**: `8000`
 - **Volume**: `/opt/oversyncerr:/config` (config.json location)
 - **Network**: `saltbox` (external network)
-- **Domain**: `seersync.arctv.xyz` (configurable)
+- **Domain**: `seersync.domain.com` (configurable)
 
 ## Notes
 
@@ -315,3 +315,4 @@ For production, build the frontend and serve it through the FastAPI static file 
 ## License
 
 This project is open source and available for use and modification.
+
