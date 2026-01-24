@@ -202,7 +202,8 @@ def get_user_count_from_server(server_config: dict) -> Optional[int]:
             enabled=server_config.get('enabled', True),
             password_suffix=server_config.get('password_suffix', ''),
             request_limit=server_config.get('request_limit'),
-            machine_identifier=server_config.get('machine_identifier')
+            machine_identifier=server_config.get('machine_identifier'),
+            include_owner=server_config.get('include_owner', True)
         )
         client = create_media_server_client(config)
         users = client.get_users()
@@ -653,7 +654,8 @@ async def get_all_requests(token: str = Depends(verify_token)):
                         enabled=server_data.get('enabled', True),
                         password_suffix=server_data.get('password_suffix', ''),
                         request_limit=server_data.get('request_limit'),
-                        machine_identifier=server_data.get('machine_identifier')
+                        machine_identifier=server_data.get('machine_identifier'),
+                        include_owner=server_data.get('include_owner', True)
                     )
                     client = create_media_server_client(config)
                     media_users = client.get_users()
@@ -778,7 +780,8 @@ async def get_detailed_users(token: str = Depends(verify_token)):
                 enabled=server_data.get('enabled', True),
                 password_suffix=server_data.get('password_suffix', ''),
                 request_limit=server_data.get('request_limit'),
-                machine_identifier=server_data.get('machine_identifier')
+                machine_identifier=server_data.get('machine_identifier'),
+                include_owner=server_data.get('include_owner', True)
             )
             client = create_media_server_client(config)
             media_users = client.get_users()
@@ -1064,7 +1067,8 @@ async def trigger_sync(token: str = Depends(verify_token)):
                 enabled=server_data.get('enabled', True),
                 password_suffix=server_data.get('password_suffix', ''),
                 request_limit=server_data.get('request_limit'),
-                machine_identifier=server_data.get('machine_identifier')
+                machine_identifier=server_data.get('machine_identifier'),
+                include_owner=server_data.get('include_owner', True)
             ))
         
         if not media_servers:
