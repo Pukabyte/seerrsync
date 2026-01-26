@@ -542,15 +542,15 @@ class OverseerrClient:
                 'username': username,
                 'permissions': permissions
             }
-            
+
+            # Include password in creation payload to avoid needing email configured
+            if password:
+                payload['password'] = password
+
             response = self.session.post(url, json=payload, timeout=10)
-            
+
             if response.status_code == 201:
                 user_data = response.json()
-                # Set password after user creation
-                if password and 'id' in user_data:
-                    if not self.set_user_password(user_data['id'], password):
-                        print(f"Warning: Failed to set password for user {username}")
                 return user_data
             elif response.status_code == 409:
                 print(f"User {username} already exists")
