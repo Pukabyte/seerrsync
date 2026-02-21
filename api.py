@@ -268,17 +268,26 @@ async def get_seerr(token: str = Depends(verify_token)):
         return SeerrInfo(url="", api_key="", user_count=None, total_requests=None, total_media_items=None, missing_requests=None, version=None, sync_interval_minutes=sync_interval_minutes)
     
     try:
+        from concurrent.futures import ThreadPoolExecutor
+
         overseerr_client = OverseerrClient(OverseerrConfig(
             url=seerr_config['url'],
             api_key=seerr_config['api_key']
         ))
-        users = overseerr_client.get_users()
-        stats = overseerr_client.get_stats()
-        missing_requests = overseerr_client.get_missing_requests_count()
-        
+
+        # Fetch users, stats, and missing requests in parallel
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            users_future = executor.submit(overseerr_client.get_users)
+            stats_future = executor.submit(overseerr_client.get_stats)
+            missing_future = executor.submit(overseerr_client.get_missing_requests_count)
+
+            users = users_future.result()
+            stats = stats_future.result()
+            missing_requests = missing_future.result()
+
         config_data = load_config_data()
         sync_interval_minutes = config_data.get('sync_interval_minutes')
-        
+
         return SeerrInfo(
             url=seerr_config['url'],
             api_key=seerr_config.get('api_key', ''),
@@ -344,15 +353,27 @@ async def update_overseerr_legacy(config: SeerrConfigUpdate, token: str = Depend
 @app.get("/api/mediaservers")
 async def get_mediaservers(token: str = Depends(verify_token)):
     """Get all media servers with user counts"""
+    from concurrent.futures import ThreadPoolExecutor
+
     config_data = load_config_data()
     servers = config_data.get('media_servers', [])
-    
+
+    # Fetch user counts from all enabled servers in parallel
+    enabled_servers = {i: server for i, server in enumerate(servers) if server.get('enabled', True)}
+    user_counts = {}
+
+    if enabled_servers:
+        with ThreadPoolExecutor(max_workers=min(len(enabled_servers), 5)) as executor:
+            futures = {executor.submit(get_user_count_from_server, server): i for i, server in enabled_servers.items()}
+            for future in futures:
+                idx = futures[future]
+                try:
+                    user_counts[idx] = future.result()
+                except Exception:
+                    user_counts[idx] = None
+
     result = []
-    for server in servers:
-        user_count = None
-        if server.get('enabled', True):
-            user_count = get_user_count_from_server(server)
-        
+    for i, server in enumerate(servers):
         result.append(MediaServerResponse(
             name=server['name'],
             type=server['type'],
@@ -360,10 +381,10 @@ async def get_mediaservers(token: str = Depends(verify_token)):
             enabled=server.get('enabled', True),
             password_suffix=server.get('password_suffix', ''),
             request_limit=server.get('request_limit'),
-            user_count=user_count,
+            user_count=user_counts.get(i),
             machine_identifier=server.get('machine_identifier')
         ))
-    
+
     return result
 
 
@@ -563,7 +584,7 @@ async def get_all_requests(token: str = Depends(verify_token)):
         url = f"{overseerr_client.base_url}/request"
         all_requests = []
         skip = 0
-        take = 20
+        take = 100
         
         while True:
             params = {'skip': skip, 'take': take}
@@ -586,65 +607,42 @@ async def get_all_requests(token: str = Depends(verify_token)):
             
             skip += take
         
-        # Fetch media details for each request in parallel
-        from concurrent.futures import ThreadPoolExecutor
-        
+        # Run media detail fetches and media server source lookups concurrently
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         def fetch_media_details(req):
             media = req.get('media', {})
             media_type = req.get('type') or media.get('mediaType')
             tmdb_id = media.get('tmdbId')
-            
-            # Add mediaType to request for frontend compatibility
             req['mediaType'] = media_type
-            
-            # Fetch media details if we have a tmdbId and type
             if tmdb_id and media_type:
                 try:
-                    # Use the appropriate endpoint based on media type
                     if media_type == 'movie':
                         media_url = f"{overseerr_client.base_url}/movie/{tmdb_id}"
                     elif media_type == 'tv':
                         media_url = f"{overseerr_client.base_url}/tv/{tmdb_id}"
                     else:
-                        # Fallback to media endpoint if type is unknown
                         media_id = media.get('id')
                         if media_id:
                             media_url = f"{overseerr_client.base_url}/media/{media_id}"
                         else:
                             return req
-                    
                     media_response = overseerr_client.session.get(media_url, timeout=10)
                     if media_response.status_code == 200:
                         media_data = media_response.json()
-                        # Merge media details into the media object
                         req['media'].update(media_data)
                 except Exception as e:
-                    # If media fetch fails, continue without it
                     print(f"Warning: Failed to fetch media details for {media_type} ID {tmdb_id}: {e}")
             return req
-        
-        # Fetch media details in parallel (max 10 concurrent requests), preserving order
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(fetch_media_details, req): i for i, req in enumerate(all_requests)}
-            results = [None] * len(all_requests)
-            for future in futures:
-                idx = futures[future]
-                results[idx] = future.result()
-            all_requests = results
-        
-        # Get user source information from detailed users endpoint
-        user_source_map = {}
-        try:
-            from sync_users import MediaServerConfig, create_media_server_client
-            config_data = load_config_data()
-            user_settings = config_data.get('user_settings', {})
-            
-            # Get users from all enabled media servers
-            for server_data in config_data.get('media_servers', []):
-                if not server_data.get('enabled', True):
-                    continue
-                
-                try:
+
+        def fetch_all_source_users():
+            """Fetch user source info from all media servers in parallel"""
+            source_map = {}
+            try:
+                from sync_users import MediaServerConfig, create_media_server_client
+                cfg = load_config_data()
+
+                def fetch_source_users(server_data):
                     server_url = server_data['url'].strip() if server_data.get('url') else ''
                     config = MediaServerConfig(
                         name=server_data['name'],
@@ -658,48 +656,83 @@ async def get_all_requests(token: str = Depends(verify_token)):
                         include_owner=server_data.get('include_owner', True)
                     )
                     client = create_media_server_client(config)
-                    media_users = client.get_users()
-                    
-                    for media_user in media_users:
-                        username_lower = media_user.username.lower()
-                        if username_lower not in user_source_map:
-                            user_source_map[username_lower] = {
-                                'source_servers': [],
-                                'source_types': []
-                            }
-                        if media_user.source_server not in user_source_map[username_lower]['source_servers']:
-                            user_source_map[username_lower]['source_servers'].append(media_user.source_server)
-                        if media_user.source_type not in user_source_map[username_lower]['source_types']:
-                            user_source_map[username_lower]['source_types'].append(media_user.source_type)
-                except Exception as e:
-                    print(f"Error fetching user sources from {server_data.get('name', 'unknown')}: {e}")
-        except Exception as e:
-            print(f"Error building user source map: {e}")
+                    return client.get_users()
+
+                enabled = [s for s in cfg.get('media_servers', []) if s.get('enabled', True)]
+                if enabled:
+                    with ThreadPoolExecutor(max_workers=min(len(enabled), 5)) as ex:
+                        futs = {ex.submit(fetch_source_users, s): s for s in enabled}
+                        for fut in futs:
+                            try:
+                                for mu in fut.result():
+                                    ul = mu.username.lower()
+                                    if ul not in source_map:
+                                        source_map[ul] = {'source_servers': [], 'source_types': []}
+                                    if mu.source_server not in source_map[ul]['source_servers']:
+                                        source_map[ul]['source_servers'].append(mu.source_server)
+                                    if mu.source_type not in source_map[ul]['source_types']:
+                                        source_map[ul]['source_types'].append(mu.source_type)
+                            except Exception as e:
+                                sd = futs[fut]
+                                print(f"Error fetching user sources from {sd.get('name', 'unknown')}: {e}")
+            except Exception as e:
+                print(f"Error building user source map: {e}")
+            return source_map
+
+        # Run media details + source user lookups concurrently
+        user_source_map = {}
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            # Submit source user fetch as one task
+            source_future = executor.submit(fetch_all_source_users)
+            # Submit all media detail fetches
+            media_futures = {executor.submit(fetch_media_details, req): i for i, req in enumerate(all_requests)}
+
+            # Collect media results
+            results = [None] * len(all_requests)
+            for future in as_completed(media_futures):
+                idx = media_futures[future]
+                results[idx] = future.result()
+            all_requests = results
+
+            # Collect source map result
+            user_source_map = source_future.result()
         
         # Group requests by user and add source information
+        # Trim each request to only fields the frontend uses
         requests_by_user = {}
         for req in all_requests:
             requested_by = req.get('requestedBy') or {}
             user_id = requested_by.get('id')
             username = requested_by.get('username') or 'Unknown'
             username_lower = username.lower()
-            
+
             if user_id not in requests_by_user:
-                user_info = requested_by.copy()
-                # Add source information if available
-                if username_lower in user_source_map:
-                    user_info['source_servers'] = user_source_map[username_lower]['source_servers']
-                    user_info['source_types'] = user_source_map[username_lower]['source_types']
-                else:
-                    user_info['source_servers'] = []
-                    user_info['source_types'] = []
-                
+                user_info = {
+                    'id': user_id,
+                    'username': username,
+                    'email': requested_by.get('email'),
+                    'source_servers': user_source_map.get(username_lower, {}).get('source_servers', []),
+                    'source_types': user_source_map.get(username_lower, {}).get('source_types', [])
+                }
                 requests_by_user[user_id] = {
                     'user': user_info,
                     'requests': []
                 }
-            
-            requests_by_user[user_id]['requests'].append(req)
+
+            media = req.get('media', {})
+            trimmed_req = {
+                'id': req.get('id'),
+                'status': req.get('status'),
+                'mediaType': req.get('mediaType'),
+                'createdAt': req.get('createdAt'),
+                'updatedAt': req.get('updatedAt'),
+                'media': {
+                    'title': media.get('title') or media.get('name'),
+                    'name': media.get('name'),
+                    'releaseDate': media.get('releaseDate'),
+                }
+            }
+            requests_by_user[user_id]['requests'].append(trimmed_req)
         
         return {
             'total_requests': len(all_requests),
@@ -765,62 +798,70 @@ async def get_detailed_users(token: str = Depends(verify_token)):
                     request_limit=None
                 )
     
-    # Get users from all enabled media servers
-    for server_data in config_data.get('media_servers', []):
-        if not server_data.get('enabled', True):
-            continue
-        
-        try:
-            server_url = server_data['url'].strip() if server_data.get('url') else ''
-            config = MediaServerConfig(
-                name=server_data['name'],
-                type=server_data['type'],
-                url=server_url,
-                token=server_data['token'],
-                enabled=server_data.get('enabled', True),
-                password_suffix=server_data.get('password_suffix', ''),
-                request_limit=server_data.get('request_limit'),
-                machine_identifier=server_data.get('machine_identifier'),
-                include_owner=server_data.get('include_owner', True)
-            )
-            client = create_media_server_client(config)
-            media_users = client.get_users()
-            
-            for media_user in media_users:
-                username_lower = media_user.username.lower()
-                user_setting = user_settings.get(username_lower, {})
-                if username_lower not in all_users:
-                    all_users[username_lower] = UserDetail(
-                        username=media_user.username,
-                        email=media_user.email,
-                        source_servers=[media_user.source_server],
-                        source_types=[media_user.source_type],
-                        synced_to_overseerr=False,
-                        request_count=0,
-                        missing_requests=0,
-                        blocked=user_setting.get('blocked', False),
-                        immune=user_setting.get('immune', False),
-                        password_suffix=media_user.password_suffix,
-                        request_limit=media_user.request_limit
-                    )
-                else:
-                    # Update existing user (could be a blocked user from config)
-                    all_users[username_lower].username = media_user.username  # Use correct case
-                    if media_user.source_server not in all_users[username_lower].source_servers:
-                        all_users[username_lower].source_servers.append(media_user.source_server)
-                    if media_user.source_type not in all_users[username_lower].source_types:
-                        all_users[username_lower].source_types.append(media_user.source_type)
-                    if not all_users[username_lower].email and media_user.email:
-                        all_users[username_lower].email = media_user.email
-                    if not all_users[username_lower].password_suffix and media_user.password_suffix:
-                        all_users[username_lower].password_suffix = media_user.password_suffix
-                    if all_users[username_lower].request_limit is None and media_user.request_limit is not None:
-                        all_users[username_lower].request_limit = media_user.request_limit
-                    # Preserve blocked/immune status from config
-                    all_users[username_lower].blocked = user_setting.get('blocked', all_users[username_lower].blocked)
-                    all_users[username_lower].immune = user_setting.get('immune', all_users[username_lower].immune)
-        except Exception as e:
-            print(f"Error fetching users from {server_data.get('name', 'unknown')}: {e}")
+    # Get users from all enabled media servers in parallel
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch_server_users(server_data):
+        server_url = server_data['url'].strip() if server_data.get('url') else ''
+        config = MediaServerConfig(
+            name=server_data['name'],
+            type=server_data['type'],
+            url=server_url,
+            token=server_data['token'],
+            enabled=server_data.get('enabled', True),
+            password_suffix=server_data.get('password_suffix', ''),
+            request_limit=server_data.get('request_limit'),
+            machine_identifier=server_data.get('machine_identifier'),
+            include_owner=server_data.get('include_owner', True)
+        )
+        client = create_media_server_client(config)
+        return client.get_users()
+
+    enabled_servers = [s for s in config_data.get('media_servers', []) if s.get('enabled', True)]
+    server_results = {}
+
+    if enabled_servers:
+        with ThreadPoolExecutor(max_workers=min(len(enabled_servers), 5)) as executor:
+            futures = {executor.submit(fetch_server_users, s): s for s in enabled_servers}
+            for future in futures:
+                server_data = futures[future]
+                try:
+                    server_results[server_data['name']] = future.result()
+                except Exception as e:
+                    print(f"Error fetching users from {server_data.get('name', 'unknown')}: {e}")
+
+    for server_name, media_users in server_results.items():
+        for media_user in media_users:
+            username_lower = media_user.username.lower()
+            user_setting = user_settings.get(username_lower, {})
+            if username_lower not in all_users:
+                all_users[username_lower] = UserDetail(
+                    username=media_user.username,
+                    email=media_user.email,
+                    source_servers=[media_user.source_server],
+                    source_types=[media_user.source_type],
+                    synced_to_overseerr=False,
+                    request_count=0,
+                    missing_requests=0,
+                    blocked=user_setting.get('blocked', False),
+                    immune=user_setting.get('immune', False),
+                    password_suffix=media_user.password_suffix,
+                    request_limit=media_user.request_limit
+                )
+            else:
+                all_users[username_lower].username = media_user.username
+                if media_user.source_server not in all_users[username_lower].source_servers:
+                    all_users[username_lower].source_servers.append(media_user.source_server)
+                if media_user.source_type not in all_users[username_lower].source_types:
+                    all_users[username_lower].source_types.append(media_user.source_type)
+                if not all_users[username_lower].email and media_user.email:
+                    all_users[username_lower].email = media_user.email
+                if not all_users[username_lower].password_suffix and media_user.password_suffix:
+                    all_users[username_lower].password_suffix = media_user.password_suffix
+                if all_users[username_lower].request_limit is None and media_user.request_limit is not None:
+                    all_users[username_lower].request_limit = media_user.request_limit
+                all_users[username_lower].blocked = user_setting.get('blocked', all_users[username_lower].blocked)
+                all_users[username_lower].immune = user_setting.get('immune', all_users[username_lower].immune)
     
     # Get Overseerr users and match them
     overseerr_users = []
@@ -833,52 +874,48 @@ async def get_detailed_users(token: str = Depends(verify_token)):
                 url=seerr_config['url'],
                 api_key=seerr_config['api_key']
             ))
-            overseerr_users = overseerr_client.get_users()
-            overseerr_usernames = {user['username'].lower(): user for user in overseerr_users if user.get('username')}
-            
-            # Get request counts
-            try:
-                url = f"{overseerr_client.base_url}/request"
-                all_requests = []
+
+            # Fetch Overseerr users and all requests in parallel
+            def fetch_all_requests():
+                reqs = []
+                req_url = f"{overseerr_client.base_url}/request"
                 skip = 0
-                take = 20
-                
+                take = 100
                 while True:
                     params = {'skip': skip, 'take': take}
-                    response = overseerr_client.session.get(url, params=params, timeout=10)
-                    response.raise_for_status()
-                    
-                    data = response.json()
+                    resp = overseerr_client.session.get(req_url, params=params, timeout=10)
+                    resp.raise_for_status()
+                    data = resp.json()
                     page_requests = data.get('results', [])
-                    all_requests.extend(page_requests)
-                    
+                    reqs.extend(page_requests)
                     if len(page_requests) < take:
                         break
-                    
                     page_info = data.get('pageInfo', {})
-                    current_page = page_info.get('page', 1)
-                    total_pages = page_info.get('pages', 1)
-                    
-                    if current_page >= total_pages:
+                    if page_info.get('page', 1) >= page_info.get('pages', 1):
                         break
-                    
                     skip += take
-                
-                for req in all_requests:
-                    requested_by = req.get('requestedBy', {})
-                    user_id = requested_by.get('id')
-                    if user_id:
-                        if user_id not in requests_by_user:
-                            requests_by_user[user_id] = 0
-                        requests_by_user[user_id] += 1
-                        
-                        # Count missing requests (status 7 = Unavailable)
-                        if req.get('status') == 7:
-                            if user_id not in missing_requests_by_user:
-                                missing_requests_by_user[user_id] = 0
-                            missing_requests_by_user[user_id] += 1
-            except Exception as e:
-                print(f"Error fetching requests: {e}")
+                return reqs
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                users_future = executor.submit(overseerr_client.get_users)
+                requests_future = executor.submit(fetch_all_requests)
+
+                overseerr_users = users_future.result()
+                all_requests = requests_future.result()
+
+            overseerr_usernames = {user['username'].lower(): user for user in overseerr_users if user.get('username')}
+
+            for req in all_requests:
+                requested_by = req.get('requestedBy', {})
+                user_id = requested_by.get('id')
+                if user_id:
+                    if user_id not in requests_by_user:
+                        requests_by_user[user_id] = 0
+                    requests_by_user[user_id] += 1
+                    if req.get('status') == 7:
+                        if user_id not in missing_requests_by_user:
+                            missing_requests_by_user[user_id] = 0
+                        missing_requests_by_user[user_id] += 1
             
             # Match Overseerr users with media server users
             for overseerr_user in overseerr_users:

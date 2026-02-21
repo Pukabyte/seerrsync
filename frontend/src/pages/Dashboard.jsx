@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { MdStorage, MdDelete, MdAdd, MdVisibility, MdVisibilityOff } from 'react-icons/md'
-import { getSeerr, getMediaServers, triggerSync, createMediaServer, updateMediaServer, deleteMediaServer, getPlexServers, updateSeerr } from '../api'
+import { getSeerr, getMediaServers, triggerSync, createMediaServer, updateMediaServer, deleteMediaServer, getPlexServers, updateSeerr, getCached } from '../api'
 import AnimatedNumber from '../components/AnimatedNumber'
 
 function MediaServerForm({ server, onClose, onSave }) {
@@ -343,14 +343,16 @@ function SeerrConfigForm({ seerr, onClose, onSave }) {
 }
 
 function Dashboard() {
-  const [seerr, setSeerr] = useState(null)
-  const [mediaServers, setMediaServers] = useState([])
-  const [initialLoading, setInitialLoading] = useState(true)
+  const cachedSeerr = getCached('seerr')
+  const cachedServers = getCached('mediaservers')
+  const [seerr, setSeerr] = useState(cachedSeerr)
+  const [mediaServers, setMediaServers] = useState(cachedServers || [])
+  const [initialLoading, setInitialLoading] = useState(!cachedSeerr)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState(null)
-  const [imageLoaded, setImageLoaded] = useState(false)
+
   const [showSeerrModal, setShowSeerrModal] = useState(false)
   const [showMediaServerModal, setShowMediaServerModal] = useState(false)
   const [editingServer, setEditingServer] = useState(null)
@@ -417,11 +419,12 @@ function Dashboard() {
     }
   }, [syncMessage])
 
+  const hasCachedData = Boolean(cachedSeerr)
   useEffect(() => {
-    loadData(true)
+    loadData(!hasCachedData)
     const interval = setInterval(() => loadData(false), 30000)
     return () => clearInterval(interval)
-  }, [loadData])
+  }, [loadData, hasCachedData])
 
   useEffect(() => {
     // Show Seerr config modal if Seerr is not configured
@@ -445,14 +448,87 @@ function Dashboard() {
   if (initialLoading) {
     return (
       <div className="container">
-        <div className="loading">
-          <img 
-            src="/assets/seerrsync.svg" 
-            alt="SeerrSync" 
-            className={`loading-logo ${imageLoaded ? 'loaded' : ''}`}
-            onLoad={() => setImageLoaded(true)}
-          />
-          <div className="loading-text">Loading...</div>
+        <div className="dashboard-layout">
+          <div style={{ width: '100%' }}>
+            {/* Seerr & Statistics section */}
+            <div className="section" style={{ marginBottom: '2.5rem' }}>
+              <div className="section-header">
+                <h2 className="section-title">Seerr & Statistics</h2>
+              </div>
+              <div className="grid" style={{ alignItems: 'stretch' }}>
+                {/* Seerr card skeleton */}
+                <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div className="card-header">
+                    <div className="skeleton" style={{ width: '4rem', height: '1rem', borderRadius: '6px' }}></div>
+                    <div className="skeleton" style={{ width: '10px', height: '10px', borderRadius: '50%' }}></div>
+                  </div>
+                  <div className="card-content" style={{ flex: 1 }}>
+                    <div className="info-box">
+                      <div className="skeleton" style={{ width: '75%', height: '1rem', borderRadius: '6px', marginBottom: '0.5rem' }}></div>
+                      <div className="skeleton skeleton-text" style={{ width: '30%' }}></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '1rem' }}>
+                      {['Users', 'Total Requests', 'Missing Requests', 'Media Items'].map(label => (
+                        <div key={label} className="card-stat">
+                          <div className="skeleton" style={{ width: '2.5rem', height: '1.25rem', borderRadius: '6px', marginBottom: '0.25rem' }}></div>
+                          <span className="stat-label">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="card-actions">
+                    <div className="skeleton" style={{ width: '90px', height: '32px', borderRadius: '8px' }}></div>
+                    <div className="skeleton" style={{ width: '90px', height: '32px', borderRadius: '8px' }}></div>
+                  </div>
+                </div>
+                {/* Summary stats card skeleton */}
+                <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div className="stats-box" style={{ marginBottom: '0.75rem' }}>
+                    <div className="skeleton" style={{ width: '4rem', height: '3.5rem', borderRadius: '8px', marginBottom: '0.5rem' }}></div>
+                    <div className="stat-label" style={{ fontSize: '0.9rem' }}>Total Users</div>
+                  </div>
+                  <div className="stats-box" style={{ marginTop: 'auto' }}>
+                    {['Media Servers', 'Enabled', 'Disabled', 'Seerr Users'].map(label => (
+                      <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                        <span className="stat-label" style={{ fontSize: '0.85rem' }}>{label}</span>
+                        <div className="skeleton" style={{ width: '1.5rem', height: '1rem', borderRadius: '4px' }}></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Media Servers section */}
+            <div className="section">
+              <div className="section-header">
+                <h2 className="section-title">Media Servers</h2>
+              </div>
+              <div className="grid">
+                {[1,2].map(i => (
+                  <div key={i} className="card">
+                    <div className="card-header">
+                      <div className="skeleton" style={{ width: '8rem', height: '1rem', borderRadius: '6px' }}></div>
+                      <div className="skeleton" style={{ width: '10px', height: '10px', borderRadius: '50%' }}></div>
+                    </div>
+                    <div className="card-content">
+                      <div className="info-box">
+                        <div className="skeleton" style={{ width: '70%', height: '0.875rem', borderRadius: '6px', marginBottom: '0.75rem' }}></div>
+                        <div className="card-stat">
+                          <div className="skeleton" style={{ width: '2rem', height: '1.25rem', borderRadius: '6px', marginBottom: '0.25rem' }}></div>
+                          <span className="stat-label">Users</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="card-actions">
+                      <div className="skeleton" style={{ width: '60px', height: '32px', borderRadius: '8px' }}></div>
+                      <div className="skeleton" style={{ width: '60px', height: '32px', borderRadius: '8px' }}></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     )

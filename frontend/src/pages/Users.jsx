@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { MdPeople, MdBlock, MdShield, MdLock, MdCheck, MdClose, MdEdit, MdVisibility, MdVisibilityOff, MdFilterList, MdAdd } from 'react-icons/md'
-import { getDetailedUsers, updateUserSettings, createUser } from '../api'
+import { getDetailedUsers, updateUserSettings, createUser, getCached } from '../api'
 import AnimatedNumber from '../components/AnimatedNumber'
 
 function UserSettingsModal({ user, onClose, onSave }) {
@@ -405,10 +405,11 @@ function AddUserModal({ onClose, onSave }) {
 }
 
 function Users() {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
+  const cachedUsers = getCached('detailed_users')
+  const [users, setUsers] = useState(cachedUsers?.users || [])
+  const [loading, setLoading] = useState(!cachedUsers)
   const [error, setError] = useState(null)
-  const [imageLoaded, setImageLoaded] = useState(false)
+
   const [editingUser, setEditingUser] = useState(null)
   const [showAddUser, setShowAddUser] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -484,14 +485,67 @@ function Users() {
   if (loading) {
     return (
       <div className="container">
-        <div className="loading">
-          <img 
-            src="/assets/seerrsync.svg" 
-            alt="SeerrSync" 
-            className={`loading-logo ${imageLoaded ? 'loaded' : ''}`}
-            onLoad={() => setImageLoaded(true)}
-          />
-          <div className="loading-text">Loading...</div>
+        <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h1 className="page-title">Users</h1>
+            <p className="page-subtitle">Manage users from all media servers</p>
+          </div>
+        </div>
+
+        {/* Stats skeleton - matches the 5 stat cards */}
+        <div className="section" style={{ marginBottom: '2rem' }}>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            {['Total Users', 'Synced to Overseerr', 'Blocked', 'Immune', 'Total Requests'].map(label => (
+              <div key={label} className="card">
+                <div className="card-content">
+                  <div className="skeleton" style={{ width: '3rem', height: '2.5rem', borderRadius: '8px', marginBottom: '0.5rem' }}></div>
+                  <div className="stat-label">{label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Search bar skeleton */}
+        <div className="section">
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div className="skeleton" style={{ width: '100%', height: '42px', borderRadius: '8px' }}></div>
+            </div>
+          </div>
+
+          {/* User cards skeleton - matches actual card layout */}
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '1.5rem' }}>
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="card" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Header - username + sync icon */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="skeleton" style={{ width: '55%', height: '1.375rem', marginBottom: '0.5rem', borderRadius: '6px' }}></div>
+                    <div className="skeleton skeleton-text" style={{ width: '40%' }}></div>
+                  </div>
+                  <div className="skeleton" style={{ width: '40px', height: '40px', borderRadius: '12px', flexShrink: 0 }}></div>
+                </div>
+                {/* Stats box - 2x2 grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', padding: '1rem', background: 'rgba(180, 150, 230, 0.05)', borderRadius: '16px', border: '1px solid rgba(180, 150, 230, 0.1)' }}>
+                  {[1,2].map(j => (
+                    <div key={j} style={{ textAlign: 'center' }}>
+                      <div className="skeleton" style={{ width: '2rem', height: '2rem', borderRadius: '8px', margin: '0 auto 0.25rem' }}></div>
+                      <div className="skeleton skeleton-text" style={{ width: '60%', margin: '0 auto' }}></div>
+                    </div>
+                  ))}
+                </div>
+                {/* Details rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div className="skeleton skeleton-text" style={{ width: '70%' }}></div>
+                  <div className="skeleton skeleton-text" style={{ width: '50%' }}></div>
+                  <div className="skeleton skeleton-text" style={{ width: '60%' }}></div>
+                </div>
+                {/* Edit button */}
+                <div className="skeleton" style={{ width: '100%', height: '36px', borderRadius: '12px' }}></div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )

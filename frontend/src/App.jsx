@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { MdDashboard, MdList, MdPeople, MdLogout } from 'react-icons/md'
-import Dashboard from './pages/Dashboard'
-import Requests from './pages/Requests'
-import Users from './pages/Users'
 import Login from './pages/Login'
 import { logout, verifyAuth } from './api'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Users = lazy(() => import('./pages/Users'))
+const Requests = lazy(() => import('./pages/Requests'))
 
 function Navbar() {
   const location = useLocation()
@@ -54,8 +55,8 @@ function Navbar() {
 }
 
 function ProtectedRoute({ children }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(null)
-  const [imageLoaded, setImageLoaded] = useState(false)
+  const hasToken = Boolean(localStorage.getItem('authToken'))
+  const [isAuthenticated, setIsAuthenticated] = useState(hasToken ? 'pending' : null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -78,23 +79,14 @@ function ProtectedRoute({ children }) {
     checkAuth()
   }, [navigate])
 
+  // No token at all — redirect handled by useEffect, show nothing
   if (isAuthenticated === null) {
-    return (
-      <div className="container">
-        <div className="loading">
-          <img 
-            src="/assets/seerrsync.svg" 
-            alt="SeerrSync" 
-            className={`loading-logo ${imageLoaded ? 'loaded' : ''}`}
-            onLoad={() => setImageLoaded(true)}
-          />
-          <div className="loading-text">Loading...</div>
-        </div>
-      </div>
-    )
+    return null
   }
 
-  return isAuthenticated ? children : null
+  // Token exists — render children optimistically while verifying
+  // If verification fails, useEffect will redirect to login
+  return children
 }
 
 function DockMenu() {
@@ -168,11 +160,13 @@ function App() {
               <ProtectedRoute>
                 <>
                   <Navbar />
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/users" element={<Users />} />
-                    <Route path="/requests" element={<Requests />} />
-                  </Routes>
+                  <Suspense fallback={null}>
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/users" element={<Users />} />
+                      <Route path="/requests" element={<Requests />} />
+                    </Routes>
+                  </Suspense>
                   <DockMenu />
                 </>
               </ProtectedRoute>

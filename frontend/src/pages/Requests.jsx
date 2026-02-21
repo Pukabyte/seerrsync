@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdList } from 'react-icons/md'
-import { getAllRequests } from '../api'
+import { getAllRequests, getCached } from '../api'
 
 function Requests() {
   const navigate = useNavigate()
-  const [requestsData, setRequestsData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const cachedRequests = getCached('requests')
+  const [requestsData, setRequestsData] = useState(cachedRequests || null)
+  const [loading, setLoading] = useState(!cachedRequests)
   const [error, setError] = useState(null)
   const [expandedUsers, setExpandedUsers] = useState(new Set())
-  const [imageLoaded, setImageLoaded] = useState(false)
+
 
   useEffect(() => {
     if (error) {
@@ -98,14 +99,31 @@ function Requests() {
   if (loading) {
     return (
       <div className="container">
-        <div className="loading">
-          <img 
-            src="/assets/seerrsync.svg" 
-            alt="SeerrSync" 
-            className={`loading-logo ${imageLoaded ? 'loaded' : ''}`}
-            onLoad={() => setImageLoaded(true)}
-          />
-          <div className="loading-text">Loading...</div>
+        <div className="page-header">
+          <h1 className="page-title">User Requests</h1>
+          <p className="page-subtitle">All requests organized by user</p>
+        </div>
+        <div className="section">
+          {[1,2,3,4,5].map(i => (
+            <div key={i} className="collapsible">
+              <div className="collapsible-header" style={{ pointerEvents: 'none' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <div className="skeleton" style={{ width: '16px', height: '16px', borderRadius: '4px' }}></div>
+                    <div className="skeleton" style={{ width: `${20 + i * 8}%`, height: '1rem', borderRadius: '6px' }}></div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div className="skeleton skeleton-text" style={{ width: '80px' }}></div>
+                    <div className="skeleton skeleton-text" style={{ width: '120px' }}></div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div className="skeleton" style={{ width: '2rem', height: '1.25rem', borderRadius: '6px' }}></div>
+                  <div className="skeleton" style={{ width: '12px', height: '12px', borderRadius: '3px' }}></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     )

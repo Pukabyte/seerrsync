@@ -457,7 +457,7 @@ class OverseerrClient:
         try:
             url = f"{self.base_url}/user"
             skip = 0
-            take = 20
+            take = 100
             
             while True:
                 params = {'skip': skip, 'take': take}
@@ -504,7 +504,7 @@ class OverseerrClient:
             url = f"{self.base_url}/request"
             all_requests = []
             skip = 0
-            take = 20
+            take = 100
             
             while True:
                 params = {'skip': skip, 'take': take}
