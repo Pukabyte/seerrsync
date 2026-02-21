@@ -28,7 +28,7 @@ function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <img src="/assets/seerrsync.svg" alt="SeerrSync" className="navbar-logo" />
+        <img src="/assets/seerrsync.webp" alt="SeerrSync" className="navbar-logo" />
         <span>SeerrSync</span>
       </div>
       <div className="navbar-links">

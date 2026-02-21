@@ -46,7 +46,7 @@ function Login() {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <img src="/assets/seerrsync.svg" alt="SeerrSync" className="login-logo" />
+          <img src="/assets/seerrsync.webp" alt="SeerrSync" className="login-logo" />
           <h1 className="login-title">SeerrSync</h1>
           <p className="login-subtitle">Admin Login</p>
         </div>

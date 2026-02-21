@@ -277,7 +277,7 @@ function MediaServers() {
       <div className="container">
         <div className="loading">
           <img 
-            src="/assets/seerrsync.svg" 
+            src="/assets/seerrsync.webp" 
             alt="SeerrSync" 
             className={`loading-logo ${imageLoaded ? 'loaded' : ''}`}
             onLoad={() => setImageLoaded(true)}

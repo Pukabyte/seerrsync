@@ -76,20 +76,21 @@ function Requests() {
     return new Date(dateString).toLocaleString()
   }
 
+  const SERVER_ICONS = {
+    plex: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20512%20512%22%3E%3Cpath%20fill%3D%22%23e5a00d%22%20d%3D%22M256%2070H148l108%20186-108%20186h108l108-186z%22%20transform%3D%22translate%28256%2C256%29%20scale%281.38%29%20translate%28-256%2C-256%29%22%2F%3E%3C%2Fsvg%3E",
+    jellyfin: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xml%3Aspace%3D%22preserve%22%20viewBox%3D%220%200%20512%20512%22%3E%3ClinearGradient%20id%3D%22a%22%20x1%3D%2297.508%22%20x2%3D%22522.069%22%20y1%3D%22308.135%22%20y2%3D%2263.019%22%20gradientTransform%3D%22matrix%281%200%200%20-1%200%20514%29%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20offset%3D%220%22%20style%3D%22stop-color%3A%23aa5cc3%22%2F%3E%3Cstop%20offset%3D%221%22%20style%3D%22stop-color%3A%2300a4dc%22%2F%3E%3C%2FlinearGradient%3E%3Cpath%20d%3D%22M256%20196.2c-22.4%200-94.8%20131.3-83.8%20153.4s156.8%2021.9%20167.7%200-61.3-153.4-83.9-153.4%22%20style%3D%22fill%3Aurl%28%23a%29%22%2F%3E%3ClinearGradient%20id%3D%22b%22%20x1%3D%2294.193%22%20x2%3D%22518.754%22%20y1%3D%22302.394%22%20y2%3D%2257.278%22%20gradientTransform%3D%22matrix%281%200%200%20-1%200%20514%29%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20offset%3D%220%22%20style%3D%22stop-color%3A%23aa5cc3%22%2F%3E%3Cstop%20offset%3D%221%22%20style%3D%22stop-color%3A%2300a4dc%22%2F%3E%3C%2FlinearGradient%3E%3Cpath%20d%3D%22M256%200C188.3%200-29.8%20395.4%203.4%20462.2s472.3%2066%20505.2%200S323.8%200%20256%200m165.6%20404.3c-21.6%2043.2-309.3%2043.8-331.1%200S211.7%20101.4%20256%20101.4%20443.2%20361%20421.6%20404.3%22%20style%3D%22fill%3Aurl%28%23b%29%22%2F%3E%3C%2Fsvg%3E",
+    emby: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xml%3Aspace%3D%22preserve%22%20viewBox%3D%220%200%20512%20512%22%3E%3Cpath%20d%3D%22m97.1%20229.4%2026.5%2026.5L0%20379.5l132.4%20132.4%2026.5-26.5L282.5%20609l141.2-141.2-26.5-26.5L512%20326.5%20379.6%20194.1l-26.5%2026.5L229.5%2097z%22%20style%3D%22fill%3A%2352b54b%22%20transform%3D%22translate%280%20-97%29%22%2F%3E%3Cpath%20d%3D%22M196.8%20351.2v-193L366%20254.7%20281.4%20303z%22%20style%3D%22fill%3A%23fff%22%2F%3E%3C%2Fsvg%3E"
+  }
+
   const getServerIcon = (serverType) => {
     const type = serverType?.toLowerCase()
-    const iconMap = {
-      plex: '/assets/plex.svg',
-      jellyfin: '/assets/jellyfin.svg',
-      emby: '/assets/emby.svg'
-    }
-    const iconPath = iconMap[type]
-    if (!iconPath) return null
-    
+    const iconSrc = SERVER_ICONS[type]
+    if (!iconSrc) return null
+
     return (
-      <img 
-        src={iconPath} 
-        alt={type} 
+      <img
+        src={iconSrc}
+        alt={type}
         style={{ width: '16px', height: '16px', display: 'inline-block' }}
       />
     )
