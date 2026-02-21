@@ -572,7 +572,9 @@ class OverseerrClient:
         try:
             url = f"{self.base_url}/user/{user_id}/settings/password"
             payload = {
-                'newPassword': password
+                'currentPassword': '',
+                'newPassword': password,
+                'confirmPassword': password
             }
             response = self.session.post(url, json=payload, timeout=10)
             response.raise_for_status()
@@ -833,14 +835,15 @@ def sync_users(overseerr_client: OverseerrClient, media_servers: List[MediaServe
     
     print("Checking media server availability...")
     enabled_servers = [s for s in media_servers if s.enabled]
-    
+
     if not enabled_servers:
         print("Error: No enabled media servers configured. Aborting sync.")
         return
-    
+
     print(f"Found {len(enabled_servers)} enabled media server(s) to check")
-    
+
     available_servers = []
+    unavailable_server_names = set()
     for server_config in enabled_servers:
         try:
             client = create_media_server_client(server_config)
@@ -849,15 +852,20 @@ def sync_users(overseerr_client: OverseerrClient, media_servers: List[MediaServe
                 available_servers.append((server_config, client))
             else:
                 print(f"✗ {server_config.name} ({server_config.type}) is not reachable")
+                unavailable_server_names.add(server_config.name)
         except Exception as e:
             print(f"✗ {server_config.name} ({server_config.type}) health check failed: {e}")
-    
-    if len(available_servers) != len(enabled_servers):
-        print(f"\nError: {len(enabled_servers) - len(available_servers)} of {len(enabled_servers)} enabled server(s) are not reachable.")
-        print("Aborting sync to prevent users from being removed. Please ensure all servers are available before syncing.")
+            unavailable_server_names.add(server_config.name)
+
+    if not available_servers:
+        print("\nError: No media servers are available. Aborting sync.")
         return
-    
-    print(f"\nAll {len(available_servers)} enabled media server(s) are available. Proceeding with sync...")
+
+    if unavailable_server_names:
+        print(f"\nWarning: {len(unavailable_server_names)} server(s) unavailable: {', '.join(unavailable_server_names)}")
+        print("Users from unavailable servers will be protected from removal.")
+
+    print(f"\n{len(available_servers)} of {len(enabled_servers)} enabled media server(s) available. Proceeding with sync...")
     all_media_users: Dict[str, MediaUser] = {}
     
     for server_config, client in available_servers:
@@ -897,32 +905,41 @@ def sync_users(overseerr_client: OverseerrClient, media_servers: List[MediaServe
     created_count = 0
     skipped_count = 0
     blocked_count = 0
-    
+    user_settings_changed = False
+
     for media_user in all_media_users.values():
         username_lower = media_user.username.lower()
         user_setting = user_settings.get(username_lower, {})
-        
+
+        # Track source servers for this user
+        source_servers = set(s.strip() for s in media_user.source_server.split(','))
+        existing_sources = set(user_setting.get('source_servers', []))
+        if source_servers != existing_sources:
+            user_setting['source_servers'] = list(source_servers)
+            user_settings[username_lower] = user_setting
+            user_settings_changed = True
+
         # Skip blocked users
         if user_setting.get('blocked', False):
             print(f"User {media_user.username} is blocked, skipping sync")
             blocked_count += 1
             skipped_count += 1
             continue
-        
+
         if username_lower not in overseerr_usernames:
             username = media_user.username
             password = media_user.username + media_user.password_suffix
-            
+
             print(f"Creating user: {username} (from {media_user.source_server})")
             if media_user.password_suffix:
                 print(f"  Password: {media_user.username} + '{media_user.password_suffix}' = '{password}'")
-            
+
             result = overseerr_client.create_user(
                 username=username,
                 password=password,
                 permissions=permissions
             )
-            
+
             if result:
                 created_count += 1
                 # Set request limit if configured
@@ -948,30 +965,31 @@ def sync_users(overseerr_client: OverseerrClient, media_servers: List[MediaServe
         print("\nRemoving users not in media servers...")
         removed_count = 0
         skipped_immune_count = 0
+        skipped_server_down_count = 0
         # Create a set of all usernames from enabled media servers
         media_usernames = {u.username.lower() for u in all_media_users.values()}
-        
+
         if not media_usernames:
             print("  Warning: No users found in any enabled media server. All Overseerr users will be removed.")
         else:
             print(f"  Valid usernames from enabled media servers: {len(media_usernames)}")
             print(f"  Users in Overseerr: {len(overseerr_users)}")
-        
+
         # Compare each Overseerr user against media server usernames
         blocked_removed_count = 0
         for overseerr_user in overseerr_users:
             if not overseerr_user.get('username'):
                 continue
-            
+
             overseerr_username_lower = overseerr_user['username'].lower()
             user_setting = user_settings.get(overseerr_username_lower, {})
-            
+
             # Skip immune users
             if user_setting.get('immune', False):
                 print(f"User {overseerr_user['username']} is immune from deletion, skipping")
                 skipped_immune_count += 1
                 continue
-            
+
             # Remove blocked users from Overseerr (they'll still be visible in UI via config)
             if user_setting.get('blocked', False):
                 user_id = overseerr_user['id']
@@ -980,21 +998,49 @@ def sync_users(overseerr_client: OverseerrClient, media_servers: List[MediaServe
                 if overseerr_client.delete_user(user_id):
                     blocked_removed_count += 1
                 continue
-            
+
             # Remove if Overseerr username doesn't match any media server username
             if overseerr_username_lower not in media_usernames:
                 user_id = overseerr_user['id']
                 username = overseerr_user['username']
-                
+
+                # Check if user's source servers include any unavailable server
+                user_source_servers = set(user_setting.get('source_servers', []))
+                if user_source_servers & unavailable_server_names:
+                    print(f"Skipping removal of {username} - source server(s) unavailable: {user_source_servers & unavailable_server_names}")
+                    skipped_server_down_count += 1
+                    continue
+
                 print(f"Removing user: {username} (ID: {user_id}) - not found in any enabled media server")
                 if overseerr_client.delete_user(user_id):
                     removed_count += 1
-        
+                    # Clean up source_servers from user_settings for removed users
+                    if overseerr_username_lower in user_settings:
+                        if 'source_servers' in user_settings[overseerr_username_lower]:
+                            del user_settings[overseerr_username_lower]['source_servers']
+                            if not user_settings[overseerr_username_lower]:
+                                del user_settings[overseerr_username_lower]
+                            user_settings_changed = True
+
         print(f"Removed {removed_count} users")
         if blocked_removed_count > 0:
             print(f"Removed {blocked_removed_count} blocked users from Overseerr")
         if skipped_immune_count > 0:
             print(f"Skipped {skipped_immune_count} immune users from deletion")
+        if skipped_server_down_count > 0:
+            print(f"Skipped {skipped_server_down_count} users due to their source server being unavailable")
+
+    # Save updated user_settings to config file
+    if user_settings_changed:
+        try:
+            with open(config_file, 'r') as f:
+                config_data = json.load(f)
+            config_data['user_settings'] = user_settings
+            with open(config_file, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            print("\nUpdated user source server tracking in config")
+        except Exception as e:
+            print(f"\nWarning: Failed to save user_settings to config: {e}")
 
 
 def main():
@@ -1154,11 +1200,14 @@ def main():
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"\n[{timestamp}] Starting sync #{sync_count}")
                 print("-" * 50)
-                
+
                 try:
+                    # Reload config each sync to pick up changes
+                    _, current_media_servers, _ = load_config(args.config)
+
                     sync_users(
                         overseerr_client,
-                        media_servers,
+                        current_media_servers,
                         remove_missing=not args.keep_missing,
                         permissions=args.permissions,
                         config_file=args.config
